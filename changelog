@@ -1,2 +1,9 @@
 0.1 18aug2019
 * initial implementation
+0.3.0  2026-10-22
+  Independent continuation by weewx-packages, retaining upstream history and GPLv3.
+  Support Python 3, WeeWX 5 and pymodbus 3.11 through 3.x.
+  Read LS1024B settings around reserved register 0x9068 (upstream issue #1).
+  Preserve fractional readings and retry Modbus transport exceptions.
+  Correct current/voltage groups, the consumed-energy map and energy units.
+  Keep driver and installer versions consistent; add controller-response tests.

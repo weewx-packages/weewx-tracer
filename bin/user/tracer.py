@@ -1,18 +1,14 @@
 #!/usr/bin/env python
 # Copyright 2019 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
+# Modified 2026-10-22 by weewx-packages for Python 3 and current WeeWX/Modbus.
 
 """
 Driver for collecting data from Tracer MPPT solar charge controller.
 
-tested with model 3210A
-
-default serial settings: 115200-8-1-N
-
-use sudo when running, otherwise you will get this exception:
-  engine: Unable to load driver: 'NoneType' object has no attribute 'interCharTimeout'
-
-pip install pymodbus
+Originally tested with model 3210A. Default serial settings: 115200-8-1-N.
+Requires pymodbus 3.11 or later, below version 4, and pyserial.
+The WeeWX service account needs permission to open the configured serial port.
 
 Credits
 
@@ -22,9 +18,8 @@ Thanks to lewismoten for publishing a pymodbus implementation:
 
 # TODO: enable get/set time
 
-from pymodbus.client.sync import ModbusSerialClient
-from pymodbus.mei_message import ReadDeviceInformationRequest
-from pymodbus.constants import DeviceInformation
+from pymodbus.client import ModbusSerialClient
+from pymodbus.exceptions import ModbusException
 
 import ctypes
 import datetime
@@ -36,7 +31,7 @@ import weewx.drivers
 import weewx.units
 
 DRIVER_NAME = 'Tracer'
-DRIVER_VERSION = '0.2'
+DRIVER_VERSION = '0.3.0'
 
 
 def logmsg(dst, msg):
@@ -76,7 +71,7 @@ schema = [('dateTime',   'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
 weewx.units.obs_group_dict['ambient_temperature'] = 'group_temperature'
 weewx.units.obs_group_dict['battery_temperature'] = 'group_temperature'
 weewx.units.obs_group_dict['battery_current'] = 'group_amp'
-weewx.units.obs_group_dict['battery_current'] = 'group_volt'
+weewx.units.obs_group_dict['battery_voltage'] = 'group_volt'
 weewx.units.obs_group_dict['consumed_energy'] = 'group_energy' # watt-hour
 weewx.units.obs_group_dict['generated_energy'] = 'group_energy' # watt-hour
 try:
@@ -121,17 +116,43 @@ ON_OFF = {
 }
 
 def value32(lo, hi):
-    return ctypes.c_int(lo + (hi << 16)).value / 100
+    """Decode signed hundredths from two little-endian 16-bit registers.
+
+    Args:
+        lo (int): Low word.
+        hi (int): High word.
+
+    Returns:
+        float: Signed value, preserving its fractional part.
+    """
+    return ctypes.c_int(lo + (hi << 16)).value / 100.0
 def value16(value):
-    return ctypes.c_short(value).value / 100
+    """Decode a signed 16-bit register containing hundredths.
+
+    Args:
+        value (int): Raw unsigned register.
+
+    Returns:
+        float: Signed value, preserving its fractional part.
+    """
+    return ctypes.c_short(value).value / 100.0
 def value8(value):
     return [value >> 8, value & 0xFF]
 def volts(x):
     return value16(x)
 def watts(lo, hi):
     return value32(lo, hi)
-def kwh(lo, hi):
-    return value32(lo, hi)
+def watt_hours(lo, hi):
+    """Convert the controller's unsigned 0.01 kWh counter to WeeWX watt-hours.
+
+    Args:
+        lo (int): Low word.
+        hi (int): High word.
+
+    Returns:
+        float: Cumulative or daily energy in watt-hours.
+    """
+    return (lo + (hi << 16)) * 10.0
 def amps(lo, hi=None):
     if hi is not None:
         return value32(lo, hi)
@@ -201,8 +222,8 @@ class TracerConfEditor(weewx.drivers.AbstractConfEditor):
 """
 
     def prompt_for_settings(self):
-        print "Specify the serial port on which the device is connected, for"
-        print "example /dev/ttyUSB0 or /dev/ttyS0 or /dev/tty.usbserial"
+        print("Specify the serial port on which the device is connected, for")
+        print("example /dev/ttyUSB0 or /dev/ttyS0 or /dev/tty.usbserial")
         port = self._prompt('port', '/dev/ttyUSB0')
         return {'port': port}
 
@@ -214,7 +235,7 @@ class TracerDriver(weewx.drivers.AbstractDevice):
         'battery_temperature': 'battery_temperature',
         'battery_current': 'battery_current',
         'battery_voltage': 'battery_voltage',
-        'consumed_energy': 'consumed_energey_total',
+        'consumed_energy': 'consumed_energy_total',
         'consumed_energy_today': 'consumed_energy_today',
         'generated_energy': 'generated_energy_total',
         'generated_energy_today': 'generated_energy_today',
@@ -222,7 +243,7 @@ class TracerDriver(weewx.drivers.AbstractDevice):
 
     def __init__(self, **stn_dict):
         loginf('driver version is %s' % DRIVER_VERSION)
-        self.model = stn_dict.get('model', 'MS-120')
+        self.model = stn_dict.get('model', 'EPEVER')
         loginf("model is %s" % self.model)
         port = stn_dict.get('port', Tracer.DEFAULT_PORT)
         loginf("port is %s" % port)
@@ -247,7 +268,6 @@ class TracerDriver(weewx.drivers.AbstractDevice):
 
     def closePort(self):
         self.station.close()
-        self.station = None
 
     def genLoopPackets(self):
         while True:
@@ -270,7 +290,7 @@ class TracerDriver(weewx.drivers.AbstractDevice):
         for n in range(self.max_tries):
             try:
                 return getattr(self.station, method)()
-            except (IOError, ValueError, TypeError) as e:
+            except (IOError, ValueError, TypeError, ModbusException) as e:
                 loginf("failed attempt %s of %s: %s" %
                        (n + 1, self.max_tries, e))
                 time.sleep(self.retry_wait)
@@ -286,7 +306,7 @@ class Tracer(ModbusSerialClient):
     DEFAULT_TIMEOUT = 1 # seconds
 
     def __init__(self, port, baud_rate, timeout):
-        super(Tracer, self).__init__(method='rtu', port=port,
+        super(Tracer, self).__init__(port=port,
                                      baudrate=baud_rate, timeout=timeout)
         self.unit = Tracer.CHARGE_CONTROLLER_UNIT
         loginf("port: %s" % port)
@@ -295,13 +315,13 @@ class Tracer(ModbusSerialClient):
         return self
 
     def __exit__(self, _, value, traceback):
-        pass
+        self.close()
 
     def get_info(self):
-        basic = self.execute(ReadDeviceInformationRequest(
-            DeviceInformation.Basic, unit=self.unit))
-        regular = self.execute(ReadDeviceInformationRequest(
-            DeviceInformation.Regular, unit=self.unit))
+        basic = self.read_device_information(read_code=1, device_id=self.unit)
+        regular = self.read_device_information(read_code=2, device_id=self.unit)
+        if basic.isError() or regular.isError():
+            return {'error': 'Device identification is not supported'}
         return {
             'company': basic.information[0],
             'product': basic.information[1],
@@ -311,7 +331,7 @@ class Tracer(ModbusSerialClient):
 
     def get_ratings(self):
         data = dict()
-        r = self.read_input_registers(0x3000, 9, unit=self.unit)
+        r = self.read_input_registers(0x3000, count=9, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x3000': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -326,7 +346,7 @@ class Tracer(ModbusSerialClient):
                 'rated_output_power': watts(r.registers[6], r.registers[7]),
                 'charging_mode': r.registers[8],
             })
-        r = self.read_input_registers(0x300E, 1, unit=self.unit)
+        r = self.read_input_registers(0x300E, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x300E': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -338,37 +358,40 @@ class Tracer(ModbusSerialClient):
         return data
 
     def get_statistics(self):
-        data = dict()
-        r = self.read_input_registers(0x3300, 31, unit=self.unit)
+        """Read energy counters in watt-hours and the current battery measurements.
+
+        Returns:
+            dict: Decoded observations, or a diagnostic for an unsuccessful read.
+        """
+        r = self.read_input_registers(0x3300, count=31, device_id=self.unit)
         if isinstance(r, Exception):
-            data.update({'0x3300': "exception: %s" % r})
+            return {'0x3300': "exception: %s" % r}
         elif r.function_code >= 0x80:
-            data.update({'0x3300': 'read failed'})
+            return {'0x3300': 'read failed'}
         else:
-            data.update({
+            return {
                 'input_voltage_today_max': volts(r.registers[0]),
                 'input_voltage_today_min': volts(r.registers[1]),
                 'battery_voltage_today_max': volts(r.registers[2]),
                 'battery_voltage_today_min': volts(r.registers[3]),
-                'consumed_energy_today': kwh(r.registers[4], r.registers[5]),
-                'consumed_energy_month': kwh(r.registers[6], r.registers[7]),
-                'consumed_energy_year': kwh(r.registers[8], r.registers[9]),
-                'consumed_energy_total': kwh(r.registers[10], r.registers[11]),
-                'generated_energy_today': kwh(r.registers[12], r.registers[13]),
-                'generated_energy_month': kwh(r.registers[14], r.registers[15]),
-                'generated_energy_year': kwh(r.registers[16], r.registers[17]),
-                'generated_energy_total': kwh(r.registers[18], r.registers[19]),
+                'consumed_energy_today': watt_hours(r.registers[4], r.registers[5]),
+                'consumed_energy_month': watt_hours(r.registers[6], r.registers[7]),
+                'consumed_energy_year': watt_hours(r.registers[8], r.registers[9]),
+                'consumed_energy_total': watt_hours(r.registers[10], r.registers[11]),
+                'generated_energy_today': watt_hours(r.registers[12], r.registers[13]),
+                'generated_energy_month': watt_hours(r.registers[14], r.registers[15]),
+                'generated_energy_year': watt_hours(r.registers[16], r.registers[17]),
+                'generated_energy_total': watt_hours(r.registers[18], r.registers[19]),
                 'co2_reduction': tons(r.registers[20], r.registers[21]),
                 'battery_voltage': volts(r.registers[26]),
                 'battery_current': amps(r.registers[27], r.registers[28]),
                 'battery_temperature': temperature(r.registers[29]),
                 'ambient_temperature': temperature(r.registers[30]),
-            })
-        return data
+            }
 
     def get_data(self):
         data = dict()
-        r = self.read_input_registers(0x3100, 19, unit=self.unit)
+        r = self.read_input_registers(0x3100, count=19, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x3100': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -388,7 +411,7 @@ class Tracer(ModbusSerialClient):
                 'equipment_temperature': temperature(r.registers[17]),
                 'component_temperature': temperature(r.registers[18]),
             })
-        r = self.read_input_registers(0x311A, 2, unit=self.unit)
+        r = self.read_input_registers(0x311A, count=2, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x311A': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -398,7 +421,7 @@ class Tracer(ModbusSerialClient):
                 'battery_soc': percent(r.registers[0]),
                 'remote_battery_temperature': temperature(r.registers[1]),
             })
-        r = self.read_input_registers(0x311D, 1, unit=self.unit)
+        r = self.read_input_registers(0x311D, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x311D': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -411,7 +434,7 @@ class Tracer(ModbusSerialClient):
 
     def get_status(self):
         data = dict()
-        r = self.read_input_registers(0x3200, 3, unit=self.unit)
+        r = self.read_input_registers(0x3200, count=3, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x3200': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -454,27 +477,27 @@ class Tracer(ModbusSerialClient):
 
     def get_coils(self):
         mapping = [
-            (2, 1, ['manual_load_control', 0]),
-            (3, 1, ['default_load_control', 0]),
-            (5, 1, ['load_test_mode', 0]),
-            (6, 1, ['force_loa', 0]),
+            (2, 'manual_load_control'),
+            (3, 'default_load_control'),
+            (5, 'load_test_mode'),
+            (6, 'force_loa'),
         ]
         data = dict()
-        for m in mapping:
-            r = self.read_coils(m[0], m[1], unit=self.unit)
+        for address, name in mapping:
+            r = self.read_coils(address, count=1, device_id=self.unit)
             if isinstance(r, Exception):
-                data.update({'coil%s' % m[0]: "exception: %s" % r})
+                data.update({'coil%s' % address: "exception: %s" % r})
             elif r.function_code >= 0x80:
-                data.update({'coil%s' % m[0]: 'read failed'})
+                data.update({'coil%s' % address: 'read failed'})
             else:
-                data.update({m[2][0]: r.bits[m[2][1]]})
+                data.update({name: r.bits[0]})
         return data
 
     def get_settings(self):
         data = dict()
 
         # registers 0x9000 - 0x9014
-        r = self.read_holding_registers(0x9000, 15, unit=self.unit)
+        r = self.read_holding_registers(0x9000, count=15, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9000': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -499,7 +522,7 @@ class Tracer(ModbusSerialClient):
             })
 
         # registers 0x9013 - 0x9021
-        r = self.read_holding_registers(0x9013, 15, unit=self.unit)
+        r = self.read_holding_registers(0x9013, count=15, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9013': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -522,7 +545,7 @@ class Tracer(ModbusSerialClient):
             })
 
         # registers 0x903D - 0x903F
-        r = self.read_holding_registers(0x903D, 3, unit=self.unit)
+        r = self.read_holding_registers(0x903D, count=3, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x903D': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -535,7 +558,7 @@ class Tracer(ModbusSerialClient):
             })
 
         # registers 0x9042 - 0x904D
-        r = self.read_holding_registers(0x9042, 12, unit=self.unit)
+        r = self.read_holding_registers(0x9042, count=12, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9042': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -549,7 +572,7 @@ class Tracer(ModbusSerialClient):
             })
 
         # registers 0x9063
-        r = self.read_holding_registers(0x9063, 1, unit=self.unit)
+        r = self.read_holding_registers(0x9063, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9063': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -560,7 +583,7 @@ class Tracer(ModbusSerialClient):
             })
 
         # registers 0x9065
-        r = self.read_holding_registers(0x9065, 1, unit=self.unit)
+        r = self.read_holding_registers(0x9065, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9065': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -570,8 +593,9 @@ class Tracer(ModbusSerialClient):
                 'length_of_night': hour_minute(r.registers[0]),
             })
 
-        # registers 0x9067 - 0x906E
-        r = self.read_holding_registers(0x9067, 8, unit=self.unit)
+        # LS1024B controllers reject a request crossing reserved register 0x9068.
+        # Read the voltage code separately so both settings groups stay usable.
+        r = self.read_holding_registers(0x9067, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9067': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -579,16 +603,25 @@ class Tracer(ModbusSerialClient):
         else:
             data.update({
                 'battery_rated_voltage_code': voltage_code(r.registers[0]),
-                'load_timing_control_selection': load_timing_control(r.registers[2]),
-                'default_load_onoff_in_manual_mode': on_off(r.registers[3]),
-                'equalize_duration': minutes(r.registers[4]),
-                'boost_duration': minutes(r.registers[5]),
-                'discharge_percentage': percent(r.registers[6]),
-                'charging_percentage': percent(r.registers[7]),
+            })
+
+        r = self.read_holding_registers(0x9069, count=6, device_id=self.unit)
+        if isinstance(r, Exception):
+            data.update({'0x9069': "exception: %s" % r})
+        elif r.function_code >= 0x80:
+            data.update({'0x9069': 'read failed'})
+        else:
+            data.update({
+                'load_timing_control_selection': load_timing_control(r.registers[0]),
+                'default_load_onoff_in_manual_mode': on_off(r.registers[1]),
+                'equalize_duration': minutes(r.registers[2]),
+                'boost_duration': minutes(r.registers[3]),
+                'discharge_percentage': percent(r.registers[4]),
+                'charging_percentage': percent(r.registers[5]),
             })
 
         # registers 0x9070
-        r = self.read_holding_registers(0x9070, 1, unit=self.unit)
+        r = self.read_holding_registers(0x9070, count=1, device_id=self.unit)
         if isinstance(r, Exception):
             data.update({'0x9070': "exception: %s" % r})
         elif r.function_code >= 0x80:
@@ -629,8 +662,8 @@ if __name__ == '__main__':
         (options, _) = parser.parse_args()
 
         if options.version:
-            print "driver version %s" % DRIVER_VERSION
-            exit(1)
+            print("driver version %s" % DRIVER_VERSION)
+            return
 
         if options.debug is not None:
             syslog.setlogmask(syslog.LOG_UPTO(syslog.LOG_DEBUG))
