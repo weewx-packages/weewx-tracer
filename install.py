@@ -11,7 +11,7 @@ def loader():
 class TracerInstaller(ExtensionInstaller):
     def __init__(self):
         super(TracerInstaller, self).__init__(
-            version="0.3.0",
+            version="0.3.1",
             name='tracer',
             description='Driver for Tracer solar charge controller',
             author="Matthew Wall",
