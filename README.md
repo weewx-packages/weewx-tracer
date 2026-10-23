@@ -10,23 +10,24 @@ This is a local serial driver; it does not use a cloud account.
 Requirements
 ------------
 Python >= 3.10, WeeWX >= 5, pymodbus >= 3.11 and < 4, and pyserial >= 3.5.
-Install requirements.txt into the same Python environment as WeeWX. Give the
+Install these Python dependencies in the environment that runs WeeWX. Give the
 WeeWX service account access to the serial device. EPEVER USB adapters may use
 /dev/ttyXRUSB0 and need their USB/serial driver installed on the host.
 
 Installation
 ------------
 
-    python -m pip install -r requirements.txt
+Use the `weectl` and Python interpreter from the environment that runs WeeWX.
+If you use a virtual environment, activate it first. The commands below install
+the runtime dependencies directly; no repository checkout is needed. Replace
+`/path/to/weewx.conf` with your station configuration.
+
+    python -m pip install 'pymodbus>=3.11,<4' 'pyserial>=3.5'
     weectl extension install https://github.com/weewx-packages/weewx-tracer/releases/download/v0.3.0/tracer-0.3.0.zip --config=/path/to/weewx.conf
     weectl station reconfigure --driver=user.tracer --config=/path/to/weewx.conf
 
-Use the `weectl` and Python interpreter from your WeeWX environment. Download
-or clone this repository before using `requirements.txt`, or install the runtime
-dependencies directly with `python -m pip install 'pymodbus>=3.11,<4' 'pyserial>=3.5'`.
-Replace `/path/to/weewx.conf` with the station configuration. Stock WeeWX accepts
-the fixed URL above or a downloaded copy of the same archive. It needs no catalog
-integration. Release 0.3.0 supports WeeWX >=5,<6.
+Stock WeeWX accepts the fixed URL above or a downloaded copy of the same
+archive. Release 0.3.0 supports WeeWX >=5,<6.
 
 Restart WeeWX after configuring the station:
 
