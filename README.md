@@ -1,85 +1,126 @@
-weewx-tracer
-============
+# Tracer / EPEVER
 
-WeeWX driver for EPEVER/Tracer MPPT solar charge controllers over RS485 Modbus.
-Independent continuation of https://github.com/matthewwall/weewx-tracer at
-7ffb96444660fe1363c3b8df5ec55b76aadd71de. Original author: Matthew Wall.
-The original [GPLv3 license](license) and copyright notices remain in this repository.
-This is a local serial driver; it does not use a cloud account.
+A WeeWX driver for EPEVER and Tracer MPPT solar charge controllers. It reads
+battery, temperature and energy values over RS485 Modbus through a local
+serial port. It uses no cloud account and does not write settings to the
+controller.
 
-Requirements
-------------
-Python >= 3.10, WeeWX >= 5, pymodbus >= 3.11 and < 4, and pyserial >= 3.5.
-Install these Python dependencies in the environment that runs WeeWX. Give the
-WeeWX service account access to the serial device. EPEVER USB adapters may use
-/dev/ttyXRUSB0 and need their USB/serial driver installed on the host.
+This is an independent continuation of
+[matthewwall/weewx-tracer](https://github.com/matthewwall/weewx-tracer),
+continued from commit `7ffb96444660fe1363c3b8df5ec55b76aadd71de`. Original
+author: Matthew Wall.
 
-Installation
-------------
+## Requirements
 
-Use the `weectl` and Python interpreter from the environment that runs WeeWX.
-If you use a virtual environment, activate it first. The commands below install
-the runtime dependencies directly; no repository checkout is needed. Replace
-`/path/to/weewx.conf` with your station configuration.
+- An EPEVER or Tracer charge controller connected through an RS485 serial
+  adapter. The WeeWX service account needs permission to open the serial port.
+- The Python packages `pymodbus` and `pyserial`, installed in the Python
+  environment that runs WeeWX:
 
-    python -m pip install 'pymodbus>=3.11,<4' 'pyserial>=3.5'
-    weectl extension install https://github.com/weewx-packages/weewx-tracer/releases/download/v0.3.0/tracer-0.3.0.zip --config=/path/to/weewx.conf
-    weectl station reconfigure --driver=user.tracer --config=/path/to/weewx.conf
+  ```sh
+  python -m pip install 'pymodbus>=3.11,<4' 'pyserial>=3.5'
+  ```
 
-Stock WeeWX accepts the fixed URL above or a downloaded copy of the same
-archive. Release 0.3.0 supports WeeWX >=5,<6.
+## Installation
 
-Restart WeeWX after configuring the station:
+Install `tracer` from the [WeeWX packages catalog](https://github.com/weewx-packages/catalog/blob/main/packages/tracer.md).
+The catalog page lists the current release, its WeeWX and Python
+requirements, and the install, update and removal commands.
 
-    [Station]
-        station_type = Tracer
+Then select the driver and restart WeeWX:
 
-    [Tracer]
-        port = /dev/ttyUSB0
-        baud_rate = 115200
-        poll_interval = 10
-        driver = user.tracer
+```sh
+weectl station reconfigure --driver=user.tracer --config=/path/to/weewx.conf
+```
 
-The original controller was a 3210A. LS1024B settings now read 0x9067 and
-0x9069-0x906E separately, avoiding its unsupported 0x9068 register. Regression
-tests use simulated Modbus responses; physical controller operation still needs
-confirmation from a station operator.
+## Configuration
 
-Reports and diagnostics
------------------------
-The driver supplies battery_current, battery_voltage, battery_temperature,
-ambient_temperature and energy observations. Select an archive schema containing
-the fields you want to retain, then include those fields in your report's plots
-or templates. This package supplies the driver and its example schema; use a
-skin of your choice to display the data. For a new archive, the bundled example
-schema is `user.tracer.schema`, declared in `bin/user/tracer.py`. Changing a
-schema setting does not migrate an existing database. Daily counter fields need
-your own schema columns and unit declarations; they are not in that example.
-Energy readings in version 0.3.0 are
-watt-hours, matching WeeWX METRIC units. Older driver versions emitted kWh under
-that same unit label; review historical data before combining old and new energy
-records. Daily and lifetime fields are counters; take differences when computing
-energy consumed or generated during a period.
+```ini
+[Station]
+    station_type = Tracer
 
-From a stopped station, using its Python environment and installed module path:
+[Tracer]
+    driver = user.tracer
+    port = /dev/ttyUSB0
+```
 
-    PYTHONPATH=/path/to/station/bin python -m user.tracer --port /dev/ttyUSB0
+Options in `[Tracer]`:
 
-The diagnostic prints device identification, ratings, settings, status, current
-readings and statistics. status_charge_fault reports bit 1 of register 0x3201.
-A value of 1 is the controller's reported status. Collect the full status output
-and consult the controller's register documentation when investigating it.
+| Option | Default | Meaning |
+|---|---|---|
+| `port` | `/dev/ttyUSB0` | Serial port of the RS485 adapter. |
+| `baud_rate` | `115200` | Serial speed. |
+| `timeout` | `1` | Modbus timeout in whole seconds. |
+| `poll_interval` | `10` | Seconds between packets. `0` polls without a pause. |
+| `max_tries` | `3` | Attempts per read before the driver raises an I/O error. |
+| `retry_wait` | `5` | Seconds between attempts. |
+| `model` | `EPEVER` | Hardware name the driver reports to WeeWX. |
+| `[[sensor_map]]` | see below | Maps packet fields to controller values. Entries replace the defaults with the same name. |
 
-The transport remains pymodbus. Timing differences between alternative Modbus
-libraries and controller models have not been measured by this project.
+Packets use `METRIC` units and contain these fields:
 
-Validation
-----------
+| Packet field | Controller value | Unit |
+|---|---|---|
+| `battery_voltage` | `battery_voltage` | volt |
+| `battery_current` | `battery_current` | amp |
+| `battery_temperature` | `battery_temperature` | degree_C |
+| `ambient_temperature` | `ambient_temperature` | degree_C |
+| `consumed_energy` | `consumed_energy_total` | watt-hour |
+| `consumed_energy_today` | `consumed_energy_today` | watt-hour |
+| `generated_energy` | `generated_energy_total` | watt-hour |
+| `generated_energy_today` | `generated_energy_today` | watt-hour |
 
-    python -m pytest -q tests
+The energy fields are counters. Take differences to get the energy of a
+period.
 
-Tests cover fractional and signed readings, the LS1024B register gap, reported
-fault flags, transient transport failures, device identification, observation
-mapping and matching installer/driver versions.
+### Storing the data
 
-<!-- Documentation updated 2026-10-23 by weewx-packages. -->
+WeeWX stores only fields that have a column in the archive database. The
+driver module contains an example schema, `user.tracer.schema`, with the
+columns `ambient_temperature`, `battery_temperature`, `battery_current`,
+`battery_voltage`, `consumed_energy` and `generated_energy`. Use it for a new
+database in the binding's `schema` option. Changing the schema option does
+not change an existing database.
+
+The driver assigns unit groups to the six fields of the example schema. The
+`_today` fields have no unit group and no column in the example schema. Add
+both yourself if you want to keep them. The package has no skin; show the
+fields in a skin of your choice.
+
+### Reading the controller directly
+
+Stop WeeWX first, then run the module with the Python of the WeeWX
+environment:
+
+```sh
+PYTHONPATH=/path/to/station/bin python -m user.tracer --port /dev/ttyUSB0
+```
+
+It prints device identification, ratings, settings, status flags, current
+readings, coils and statistics. Further options: `--baud-rate`, `--timeout`,
+`--debug`, `--version`. `status_charge_fault` is bit 1 of register 0x3201 as
+the controller reports it.
+
+## Limitations
+
+- Tested only with simulated Modbus responses, not with a physical
+  controller. The original driver was tested with a 3210A.
+- LS1024B controllers reject reads across register 0x9068. The driver reads
+  0x9067 and 0x9069 to 0x906E separately.
+- Earlier versions of this driver reported energy in kWh under the WeeWX
+  watt-hour unit. The energy fields are now watt-hours. Check archived energy
+  data from the earlier driver before combining it with new records.
+- The driver writes its log messages to syslog with the prefix `Tracer:`, not
+  through the WeeWX logging configuration.
+
+## Development
+
+```sh
+python -m pip install -r requirements.txt pytest
+python -m pytest -q tests
+```
+
+## License
+
+Copyright 2019 Matthew Wall. Distributed under the GNU General Public License
+version 3, see [license](license) and the source headers.
