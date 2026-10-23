@@ -2,6 +2,8 @@
 # Copyright 2019 Matthew Wall
 # Distributed under the terms of the GNU Public License (GPLv3)
 # Modified 2026-10-22 by weewx-packages for Python 3 and current WeeWX/Modbus.
+# Modified 2026-10-23 by weewx-packages: fractional timeout, unit groups for
+# the daily energy counters.
 
 """
 Driver for collecting data from Tracer MPPT solar charge controller.
@@ -74,6 +76,8 @@ weewx.units.obs_group_dict['battery_current'] = 'group_amp'
 weewx.units.obs_group_dict['battery_voltage'] = 'group_volt'
 weewx.units.obs_group_dict['consumed_energy'] = 'group_energy' # watt-hour
 weewx.units.obs_group_dict['generated_energy'] = 'group_energy' # watt-hour
+weewx.units.obs_group_dict['consumed_energy_today'] = 'group_energy' # watt-hour
+weewx.units.obs_group_dict['generated_energy_today'] = 'group_energy' # watt-hour
 try:
         # weewx prior to 3.7.0.  for 3.7.0+ this goes in the weewx config file
         weewx.accum.extract_dict['grid_energy'] = weewx.accum.Accum.sum_extract
@@ -248,7 +252,7 @@ class TracerDriver(weewx.drivers.AbstractDevice):
         port = stn_dict.get('port', Tracer.DEFAULT_PORT)
         loginf("port is %s" % port)
         baud_rate = int(stn_dict.get('baud_rate', Tracer.DEFAULT_BAUD_RATE))
-        timeout = int(stn_dict.get('timeout', Tracer.DEFAULT_TIMEOUT))
+        timeout = float(stn_dict.get('timeout', Tracer.DEFAULT_TIMEOUT))
         self.poll_interval = int(stn_dict.get('poll_interval', 10))
         loginf("poll interval is %s" % self.poll_interval)
         self.sensor_map = dict(TracerDriver.DEFAULT_MAP)
@@ -657,7 +661,7 @@ if __name__ == '__main__':
                           help='modbus slave baud rate', type=int,
                           default=Tracer.DEFAULT_BAUD_RATE)
         parser.add_option('--timeout', dest='timeout', metavar='TIMEOUT',
-                          help='modbus timeout, in seconds', type=int,
+                          help='modbus timeout, in seconds', type=float,
                           default=Tracer.DEFAULT_TIMEOUT)
         (options, _) = parser.parse_args()
 

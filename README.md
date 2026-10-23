@@ -50,7 +50,7 @@ Options in `[Tracer]`:
 |---|---|---|
 | `port` | `/dev/ttyUSB0` | Serial port of the RS485 adapter. |
 | `baud_rate` | `115200` | Serial speed. |
-| `timeout` | `1` | Modbus timeout in whole seconds. |
+| `timeout` | `1` | Modbus timeout in seconds, for example `0.5`. |
 | `poll_interval` | `10` | Seconds between packets. `0` polls without a pause. |
 | `max_tries` | `3` | Attempts per read before the driver raises an I/O error. |
 | `retry_wait` | `5` | Seconds between attempts. |
@@ -82,10 +82,10 @@ columns `ambient_temperature`, `battery_temperature`, `battery_current`,
 database in the binding's `schema` option. Changing the schema option does
 not change an existing database.
 
-The driver assigns unit groups to the six fields of the example schema. The
-`_today` fields have no unit group and no column in the example schema. Add
-both yourself if you want to keep them. The package has no skin; show the
-fields in a skin of your choice.
+The driver assigns unit groups to the six fields of the example schema and to
+the two `_today` fields. The `_today` fields have no column in the example
+schema. Add the columns yourself if you want to keep them. The package has no
+skin; show the fields in a skin of your choice.
 
 ### Reading the controller directly
 
