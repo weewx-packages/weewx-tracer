@@ -15,3 +15,7 @@ The upstream history and copyright notices remain intact.
 - Follow the existing WeeWX style, using types in Google docstrings.
 - Test Modbus responses without requiring a physical controller.
 - Keep this repository independent; do not synchronize upstream over our fixes.
+
+## Documentation
+
+README follows the weewx-packages schema and names no versions or archive URLs; installation links to the catalog page.
