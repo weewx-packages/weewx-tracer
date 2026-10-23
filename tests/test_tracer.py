@@ -112,3 +112,17 @@ def test_installer_version_matches_driver():
     installer = module.loader()
     assert installer['name'] == 'tracer'
     assert installer['version'] == tracer.DRIVER_VERSION
+
+
+def test_fractional_timeout(monkeypatch):
+    controller = Mock()
+    controller.get_info.return_value = {}
+    station = Mock(return_value=controller)
+    monkeypatch.setattr(tracer, 'Tracer', station)
+    tracer.TracerDriver(port='/dev/not-opened', baud_rate='115200', timeout='0.5')
+    assert station.call_args.args[2] == 0.5
+
+
+@pytest.mark.parametrize('field', ['consumed_energy_today', 'generated_energy_today'])
+def test_daily_energy_unit_group(field):
+    assert weewx.units.obs_group_dict[field] == 'group_energy'

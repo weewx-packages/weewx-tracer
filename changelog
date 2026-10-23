@@ -7,3 +7,6 @@
   Preserve fractional readings and retry Modbus transport exceptions.
   Correct current/voltage groups, the consumed-energy map and energy units.
   Keep driver and installer versions consistent; add controller-response tests.
+Unreleased
+  Accept a fractional timeout, such as 0.5, in weewx.conf and with --timeout.
+  Assign group_energy to consumed_energy_today and generated_energy_today.
