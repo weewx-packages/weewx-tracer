@@ -33,7 +33,7 @@ import weewx.drivers
 import weewx.units
 
 DRIVER_NAME = 'Tracer'
-DRIVER_VERSION = '0.3.0'
+DRIVER_VERSION = '0.3.1'
 
 
 def logmsg(dst, msg):
