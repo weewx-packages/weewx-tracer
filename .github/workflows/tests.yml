@@ -1,0 +1,15 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    uses: weewx-packages/catalog/.github/workflows/package-tests.yml@main
+    with:
+      pip-packages: 'pymodbus>=3.11,<4 pyserial>=3.5'
